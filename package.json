@@ -1,0 +1,47 @@
+{
+  "name": "better-brows",
+  "version": "0.1.0",
+  "description": "Zero-dependency browser automation via Chrome DevTools Protocol with ARIA accessibility snapshots — 10-100x cheaper than vision-based approaches",
+  "type": "module",
+  "main": "./src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./browser": "./src/browser.js",
+    "./agent": "./src/agent.js",
+    "./snapshot-optimizer": "./src/snapshot-optimizer.js",
+    "./snapshot-differ": "./src/snapshot-differ.js"
+  },
+  "files": [
+    "src/",
+    "types.d.ts",
+    "LICENSE",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=20.10.0"
+  },
+  "keywords": [
+    "browser",
+    "automation",
+    "cdp",
+    "chrome",
+    "devtools",
+    "aria",
+    "accessibility",
+    "snapshot",
+    "web-scraping",
+    "agent",
+    "headless",
+    "zero-dependency"
+  ],
+  "author": "mylesiyabor",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mylesndavid/better-brows.git"
+  },
+  "bugs": {
+    "url": "https://github.com/mylesndavid/better-brows/issues"
+  },
+  "homepage": "https://github.com/mylesndavid/better-brows#readme"
+}
