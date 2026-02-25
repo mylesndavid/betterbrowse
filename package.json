@@ -38,10 +38,10 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/mylesndavid/better-brows.git"
+    "url": "git+https://github.com/mylesndavid/betterbrowse.git"
   },
   "bugs": {
-    "url": "https://github.com/mylesndavid/better-brows/issues"
+    "url": "https://github.com/mylesndavid/betterbrowse/issues"
   },
-  "homepage": "https://github.com/mylesndavid/better-brows#readme"
+  "homepage": "https://github.com/mylesndavid/betterbrowse#readme"
 }
