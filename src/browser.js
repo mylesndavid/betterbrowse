@@ -2,9 +2,9 @@
 // Uses WebSocket (Node 22+ built-in, or undici fallback) and child_process to launch Chrome
 // Supports ARIA snapshots for text-based browsing (no vision model needed)
 
-import { spawn } from 'node:child_process';
+import { spawn, execFileSync } from 'node:child_process';
 import { platform, homedir, tmpdir } from 'node:os';
-import { existsSync, mkdirSync, cpSync } from 'node:fs';
+import { existsSync, mkdirSync, cpSync, writeFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { EventEmitter } from 'node:events';
 
@@ -51,6 +51,41 @@ export function findChrome() {
 }
 
 // ──────────────────────────────────────────────────────────
+// Find ffmpeg binary
+// ──────────────────────────────────────────────────────────
+
+const FFMPEG_PATHS = {
+  darwin: [
+    '/opt/homebrew/bin/ffmpeg',
+    '/usr/local/bin/ffmpeg',
+    '/usr/bin/ffmpeg',
+  ],
+  linux: [
+    '/usr/bin/ffmpeg',
+    '/usr/local/bin/ffmpeg',
+    '/snap/bin/ffmpeg',
+  ],
+  win32: [
+    'C:\\Program Files\\ffmpeg\\bin\\ffmpeg.exe',
+    'C:\\ffmpeg\\bin\\ffmpeg.exe',
+  ],
+};
+
+export function findFfmpeg() {
+  const paths = FFMPEG_PATHS[platform()] || [];
+  for (const p of paths) {
+    if (existsSync(p)) return p;
+  }
+  // Try PATH lookup
+  try {
+    const cmd = platform() === 'win32' ? 'where' : 'which';
+    const result = execFileSync(cmd, ['ffmpeg'], { encoding: 'utf8', timeout: 3000 }).trim();
+    if (result && existsSync(result.split('\n')[0])) return result.split('\n')[0];
+  } catch {}
+  return null;
+}
+
+// ──────────────────────────────────────────────────────────
 // CDP Client
 // ──────────────────────────────────────────────────────────
 
@@ -59,6 +94,7 @@ class CDPClient {
     this._ws = ws;
     this._id = 0;
     this._callbacks = new Map();
+    this._eventHandlers = new Map();
 
     ws.addEventListener('message', (event) => {
       const msg = JSON.parse(event.data);
@@ -67,8 +103,26 @@ class CDPClient {
         this._callbacks.delete(msg.id);
         if (msg.error) reject(new Error(msg.error.message));
         else resolve(msg.result);
+      } else if (msg.method) {
+        const handlers = this._eventHandlers.get(msg.method);
+        if (handlers) {
+          for (const handler of handlers) handler(msg.params);
+        }
       }
     });
+  }
+
+  on(method, handler) {
+    if (!this._eventHandlers.has(method)) this._eventHandlers.set(method, []);
+    this._eventHandlers.get(method).push(handler);
+  }
+
+  off(method, handler) {
+    const handlers = this._eventHandlers.get(method);
+    if (handlers) {
+      const idx = handlers.indexOf(handler);
+      if (idx !== -1) handlers.splice(idx, 1);
+    }
   }
 
   send(method, params = {}) {
@@ -216,6 +270,8 @@ export class Browser extends EventEmitter {
    * @param {object} [opts]
    * @param {boolean} [opts.headless=true] - Run Chrome in headless mode
    * @param {boolean} [opts.useProfile=false] - Copy Chrome profile (cookies, logins)
+   * @param {string} [opts.userDataDir] - Persistent Chrome profile directory (logins survive across sessions)
+   * @param {boolean} [opts.stealth=true] - Enable anti-bot-detection stealth mode
    * @param {number} [opts.port] - CDP debugging port (random by default)
    */
   constructor(opts = {}) {
@@ -225,6 +281,10 @@ export class Browser extends EventEmitter {
     this._cdp = null;
     this._port = opts.port ?? 9222 + Math.floor(Math.random() * 1000);
     this._refMap = new Map(); // ref → backendDOMNodeId (updated on each snapshot)
+    this._recording = false;
+    this._frames = [];
+    this._frameDir = null;
+    this._frameHandler = null;
   }
 
   async launch() {
@@ -233,6 +293,7 @@ export class Browser extends EventEmitter {
 
     const headless = this._opts.headless ?? true;
     const useProfile = this._opts.useProfile ?? false;
+    const stealth = this._opts.stealth ?? true;
 
     const args = [
       `--remote-debugging-port=${this._port}`,
@@ -244,11 +305,25 @@ export class Browser extends EventEmitter {
       '--window-size=1280,900',
     ];
 
+    // Stealth: anti-bot-detection flags
+    if (stealth) {
+      args.push(
+        '--disable-blink-features=AutomationControlled',
+        '--exclude-switches=enable-automation',
+        '--disable-features=AutomationControlled',
+      );
+    }
+
     if (headless) {
       args.push('--headless=new');
     }
 
-    if (useProfile) {
+    // Persistent profile directory — logins survive across sessions
+    if (this._opts.userDataDir) {
+      args.push(`--user-data-dir=${this._opts.userDataDir}`);
+      args.push('--use-mock-keychain'); // macOS: avoid Keychain dependency for cookie encryption
+    } else if (useProfile) {
+      // Legacy: copy Chrome profile to temp dir (cookies may not decrypt on macOS)
       const chromeProfile = join(homedir(), 'Library', 'Application Support', 'Google', 'Chrome', 'Default');
       if (existsSync(chromeProfile)) {
         this._tempProfile = join(tmpdir(), `better-brows-${this._port}`);
@@ -293,6 +368,18 @@ export class Browser extends EventEmitter {
     await this._cdp.send('Runtime.enable');
     await this._cdp.send('DOM.enable');
     await this._cdp.send('Accessibility.enable');
+
+    // Stealth: hide automation signals from bot detection
+    if (this._opts.stealth ?? true) {
+      await this._cdp.send('Page.addScriptToEvaluateOnNewDocument', {
+        source: [
+          'Object.defineProperty(navigator, "webdriver", { get: () => undefined });',
+          'window.chrome = { runtime: {} };',
+          'Object.defineProperty(navigator, "plugins", { get: () => [1, 2, 3, 4, 5] });',
+          'Object.defineProperty(navigator, "languages", { get: () => ["en-US", "en"] });',
+        ].join('\n'),
+      }).catch(() => {});
+    }
 
     this.emit('launch');
     return this;
@@ -623,7 +710,113 @@ export class Browser extends EventEmitter {
     return result.result.value;
   }
 
+  // ── Recording ──
+
+  /**
+   * Start recording the browser screen using CDP Page.startScreencast.
+   * Streams JPEG frames continuously. Call stopRecording() to finish.
+   * @param {object} [opts]
+   * @param {number} [opts.maxWidth=1280] - Max frame width
+   * @param {number} [opts.maxHeight=900] - Max frame height
+   * @param {number} [opts.quality=80] - JPEG quality (1-100)
+   * @param {number} [opts.everyNthFrame=2] - Capture every Nth frame from Chrome
+   */
+  async startRecording(opts = {}) {
+    if (this._recording) return;
+    const { maxWidth = 1280, maxHeight = 900, quality = 80, everyNthFrame = 2 } = opts;
+
+    this._frameDir = join(tmpdir(), `better-browse-rec-${Date.now()}`);
+    mkdirSync(this._frameDir, { recursive: true });
+    this._frames = [];
+    this._recording = true;
+
+    this._frameHandler = async (params) => {
+      const frameNum = this._frames.length;
+      const filename = `frame-${String(frameNum).padStart(5, '0')}.jpg`;
+      const filepath = join(this._frameDir, filename);
+      try {
+        writeFileSync(filepath, Buffer.from(params.data, 'base64'));
+        this._frames.push(filepath);
+      } catch {}
+      // Ack to keep receiving frames
+      try {
+        await this._cdp.send('Page.screencastFrameAck', { sessionId: params.sessionId });
+      } catch {}
+    };
+
+    this._cdp.on('Page.screencastFrame', this._frameHandler);
+
+    await this._cdp.send('Page.startScreencast', {
+      format: 'jpeg',
+      quality,
+      maxWidth,
+      maxHeight,
+      everyNthFrame,
+    });
+
+    this.emit('recording-start');
+  }
+
+  /**
+   * Stop recording and optionally stitch frames into an MP4 video.
+   * @param {object} [opts]
+   * @param {string} [opts.outputDir] - Directory for output files. Defaults to frameDir.
+   * @param {number} [opts.framerate=15] - Video framerate
+   * @returns {{ frames: string[], frameCount: number, video: string | null, frameDir: string }}
+   */
+  async stopRecording(opts = {}) {
+    if (!this._recording) return { frames: [], frameCount: 0, video: null, frameDir: null };
+
+    try {
+      await this._cdp.send('Page.stopScreencast');
+    } catch {}
+
+    if (this._frameHandler) {
+      this._cdp.off('Page.screencastFrame', this._frameHandler);
+      this._frameHandler = null;
+    }
+    this._recording = false;
+
+    // Small delay to let any in-flight frames finish writing
+    await new Promise(r => setTimeout(r, 200));
+
+    const frames = [...this._frames];
+    const frameCount = frames.length;
+    const outputDir = opts.outputDir || this._frameDir;
+    const framerate = opts.framerate || 15;
+    let video = null;
+
+    if (frameCount > 0) {
+      const ffmpeg = findFfmpeg();
+      if (ffmpeg) {
+        if (outputDir !== this._frameDir) {
+          mkdirSync(outputDir, { recursive: true });
+        }
+        const outputPath = join(outputDir, 'recording.mp4');
+        try {
+          execFileSync(ffmpeg, [
+            '-y',
+            '-framerate', String(framerate),
+            '-i', join(this._frameDir, 'frame-%05d.jpg'),
+            '-vf', 'pad=ceil(iw/2)*2:ceil(ih/2)*2',
+            '-c:v', 'libx264',
+            '-pix_fmt', 'yuv420p',
+            '-movflags', '+faststart',
+            outputPath,
+          ], { timeout: 60000, stdio: 'ignore' });
+          video = outputPath;
+        } catch {}
+      }
+    }
+
+    this.emit('recording-stop', { frames, frameCount, video });
+    return { frames, frameCount, video, frameDir: this._frameDir };
+  }
+
   async close() {
+    if (this._recording) {
+      try { await this.stopRecording(); } catch {}
+    }
     if (this._cdp) {
       try { await this._cdp.close(); } catch {}
     }

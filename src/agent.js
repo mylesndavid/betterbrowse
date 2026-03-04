@@ -144,14 +144,18 @@ async function executeBrowserTool(browser, name, args) {
  * @param {object} opts
  * @param {function} opts.chat - LLM chat function: async (messages, { tools, maxTokens }) => { content, toolCalls, usage }
  * @param {boolean} [opts.headless=true] - Run Chrome headless
- * @param {boolean} [opts.useProfile=false] - Copy Chrome profile
+ * @param {boolean} [opts.useProfile=false] - Copy Chrome profile (legacy — cookies may not decrypt on macOS)
+ * @param {string} [opts.userDataDir] - Persistent Chrome profile directory (recommended — logins survive across sessions)
+ * @param {boolean} [opts.stealth=true] - Anti-bot-detection mode (hides automation signals)
  * @param {number} [opts.port] - CDP port
  * @param {number} [opts.maxSteps] - Max agent steps (default 25)
  * @param {function} [opts.onStep] - Callback for each step: ({ step, action, ref, text, result }) => void
- * @returns {{ result: string, usage: { inputTokens: number, outputTokens: number, modelCalls: number }, steps: Array }}
+ * @param {boolean} [opts.record] - Record the browser session as video
+ * @param {string} [opts.recordDir] - Output directory for recording files
+ * @returns {{ result: string, usage: { inputTokens: number, outputTokens: number, modelCalls: number }, steps: Array, recording: object | null }}
  */
 export async function browseWeb(url, task, opts = {}) {
-  const { chat, headless, useProfile, port, maxSteps = MAX_STEPS, onStep } = opts;
+  const { chat, headless, useProfile, userDataDir, stealth, port, maxSteps = MAX_STEPS, onStep, record, recordDir } = opts;
 
   if (typeof chat !== 'function') {
     throw new Error('opts.chat is required — provide an async function: (messages, { tools, maxTokens }) => { content, toolCalls, usage }');
@@ -159,8 +163,9 @@ export async function browseWeb(url, task, opts = {}) {
 
   let browser;
   try {
-    browser = new Browser({ headless, useProfile, port });
+    browser = new Browser({ headless, useProfile, userDataDir, stealth, port });
     await browser.launch();
+    if (record) await browser.startRecording();
     await browser.navigate(url);
 
     // Get initial ARIA snapshot
@@ -220,9 +225,10 @@ Your task: ${task}
       if (toolCalls && toolCalls.length > 0) {
         for (const call of toolCalls) {
           if (call.name === 'done') {
+            const recording = record ? await browser.stopRecording({ outputDir: recordDir }) : null;
             await browser.close();
             const usage = { inputTokens: totalInputTokens, outputTokens: totalOutputTokens, modelCalls };
-            return { result: call.arguments.result, usage, steps };
+            return { result: call.arguments.result, usage, steps, recording };
           }
 
           let result;
@@ -285,17 +291,22 @@ Your task: ${task}
         }
       } else {
         // Model responded with text — done thinking
+        const recording = record ? await browser.stopRecording({ outputDir: recordDir }) : null;
         await browser.close();
         const usage = { inputTokens: totalInputTokens, outputTokens: totalOutputTokens, modelCalls };
-        return { result: response.content || 'Browser task completed (no explicit result).', usage, steps };
+        return { result: response.content || 'Browser task completed (no explicit result).', usage, steps, recording };
       }
     }
 
+    const recording = record ? await browser.stopRecording({ outputDir: recordDir }) : null;
     await browser.close();
     const usage = { inputTokens: totalInputTokens, outputTokens: totalOutputTokens, modelCalls };
-    return { result: 'Browser task hit step limit. Partial results may be available.', usage, steps };
+    return { result: 'Browser task hit step limit. Partial results may be available.', usage, steps, recording };
   } catch (err) {
-    if (browser) await browser.close();
+    if (browser) {
+      if (record) try { await browser.stopRecording({ outputDir: recordDir }); } catch {}
+      await browser.close();
+    }
     throw err;
   }
 }
