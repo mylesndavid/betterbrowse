@@ -28,18 +28,22 @@ Usage:
   betterbrowse <url> "<task>"           Run agent to complete task (uses OpenAI)
 
 Options:
-  --model <name>   OpenAI model (default: gpt-4o-mini). Needs OPENAI_API_KEY.
-  --headless       Run Chrome headless (default: true)
-  --no-headless    Show browser window
-  -v, --version    Print version
-  -h, --help       This help
+  --model <name>     OpenAI model (default: gpt-4o-mini). Needs OPENAI_API_KEY.
+  --headless         Run Chrome headless (default: true)
+  --no-headless      Show browser window
+  --record           Record the browser session as video (MP4 if ffmpeg installed)
+  --record-dir <dir> Directory for recording output (default: cwd or temp)
+  -v, --version      Print version
+  -h, --help         This help
 
 Examples:
   betterbrowse https://example.com
   betterbrowse https://news.ycombinator.com "What is the top story title?"
-  betterbrowse https://example.com "Click the first link" --no-headless
+  betterbrowse https://example.com "Click the first link" --no-headless --record
+  betterbrowse https://example.com "Sign in" --record --record-dir ./recordings
 
 For agent mode (url + task), set OPENAI_API_KEY. Result is printed to stdout.
+Video recording: use --record; output path is written to stderr. Requires ffmpeg for MP4.
 `);
 }
 
@@ -50,9 +54,18 @@ if (args.includes('--help') || args.includes('-h')) {
 
 // Parse flags
 const headless = !args.includes('--no-headless');
+const record = args.includes('--record');
 const modelIdx = args.indexOf('--model');
+const recordDirIdx = args.indexOf('--record-dir');
 const model = modelIdx >= 0 && args[modelIdx + 1] ? args[modelIdx + 1] : 'gpt-4o-mini';
-const positional = args.filter(a => !a.startsWith('--') && a !== '--no-headless' && (modelIdx < 0 || a !== args[modelIdx + 1]) && (modelIdx < 0 || a !== args[modelIdx]));
+const recordDir = recordDirIdx >= 0 && args[recordDirIdx + 1] ? args[recordDirIdx + 1] : undefined;
+const positional = args.filter(a => {
+  if (a.startsWith('--')) return false;
+  if (a === '--no-headless') return false;
+  if (modelIdx >= 0 && (a === args[modelIdx] || a === args[modelIdx + 1])) return false;
+  if (recordDirIdx >= 0 && (a === args[recordDirIdx] || a === args[recordDirIdx + 1])) return false;
+  return true;
+});
 
 const url = positional[0];
 const task = positional[1];
@@ -140,9 +153,16 @@ async function main() {
       // Snapshot-only: open URL, print ARIA snapshot to stdout
       const browser = new Browser({ headless });
       await browser.launch();
+      if (record) await browser.startRecording();
       await browser.navigate(targetUrl);
       const snapshot = await browser.getSnapshot();
+      const recording = record ? await browser.stopRecording({ outputDir: recordDir }) : null;
       await browser.close();
+      if (recording?.video) {
+        console.error('betterbrowse: recording saved to', recording.video);
+      } else if (recording?.frameDir && recording.frameCount > 0) {
+        console.error('betterbrowse: frames saved to', recording.frameDir, '(install ffmpeg for MP4)');
+      }
       console.log(snapshot);
       process.exit(0);
     }
@@ -151,7 +171,14 @@ async function main() {
     const result = await browseWeb(targetUrl, task, {
       chat: openaiChat,
       headless,
+      record,
+      recordDir,
     });
+    if (result.recording?.video) {
+      console.error('betterbrowse: recording saved to', result.recording.video);
+    } else if (result.recording?.frameDir && result.recording?.frameCount > 0) {
+      console.error('betterbrowse: frames saved to', result.recording.frameDir, '(install ffmpeg for MP4)');
+    }
     // Result to stdout so agents can capture it
     console.log(result.result);
     process.exit(0);

@@ -10,6 +10,7 @@ Most browser automation agents use screenshots + vision models. That's expensive
 - **Works with any text model** — no vision model required
 - **Faster** — no image encoding/decoding overhead
 - **More reliable** — structured data vs pixel interpretation
+- **Video recording** — record browser sessions as MP4 (via CDP screencast + ffmpeg)
 
 ## Install
 
@@ -47,10 +48,14 @@ betterbrowse https://example.com "Click the first link" --no-headless
 | `betterbrowse <url> "<task>"` | Run browser agent; result to stdout |
 | `--model <name>` | OpenAI model (default: gpt-4o-mini) |
 | `--no-headless` | Show browser window |
+| `--record` | Record the session as video (MP4 if ffmpeg installed) |
+| `--record-dir <dir>` | Directory for recording output (default: cwd or temp) |
 | `-v, --version` | Print version |
 | `-h, --help` | Show help |
 
 Agents can capture stdout for the snapshot or the task result. No extra dependencies — agent mode calls the OpenAI API with `fetch`.
+
+**Video recording:** Use `--record` (and optionally `--record-dir ./out`). The browser session is captured via CDP screencast; if **ffmpeg** is installed, frames are stitched into `recording.mp4`. The output path is printed to stderr so stdout stays clean for the result.
 
 ## Quick Start (library)
 
@@ -129,12 +134,14 @@ Extends `EventEmitter`. Events: `launch`, `navigate`, `action`, `snapshot`, `clo
 
 ### `browseWeb(url, task, opts)`
 
-LLM-driven browser agent. Returns `{ result, usage, steps }`.
+LLM-driven browser agent. Returns `{ result, usage, steps, recording }`.
 
 **Required option:** `chat` — async function matching:
 ```ts
 (messages, { tools, maxTokens }) => Promise<{ content, toolCalls?, usage? }>
 ```
+
+**Optional:** `record: true` — record the session; `recordDir: string` — output directory. When recording, the returned object includes `recording: { video, frameDir, frameCount, frames }` (MP4 path in `video` if ffmpeg is installed).
 
 ### Snapshot Utilities
 
@@ -169,6 +176,13 @@ Instead of screenshots, we fetch the browser's accessibility tree via CDP and co
 Interactive elements get `[ref=eXX]` tags. The agent uses these refs to click, fill, hover, and select — no pixel coordinates needed.
 
 The snapshot optimizer pipeline strips chrome (headers/footers), deduplicates links, compresses long names, and truncates lists — reducing token count by 60-90%.
+
+## Video recording
+
+You can record browser sessions as video (CLI or library).
+
+- **CLI:** `betterbrowse <url> "<task>" --record` or `betterbrowse <url> --record`. Use `--record-dir <dir>` to choose where the file is saved. The session is captured via Chrome DevTools screencast; if **ffmpeg** is on your PATH, frames are stitched into `recording.mp4` in that directory. The path is printed to stderr.
+- **Library:** Pass `record: true` and optionally `recordDir: './recordings'` to `browseWeb()`. The return value includes `recording: { video, frameDir, frameCount, frames }` (or `recording: null` if not recording). Frames are always saved; `video` is set only when ffmpeg is available.
 
 ## Use in agents (global install)
 
