@@ -15,12 +15,12 @@ Most browser automation agents use screenshots + vision models. That's expensive
 
 **Project (library):**
 ```bash
-npm install betterbrowse
+npm install @mylesiyabor/betterbrowse
 ```
 
 **Global (CLI + use in agents):**
 ```bash
-npm install -g betterbrowse
+npm install -g @mylesiyabor/betterbrowse
 ```
 Then run `betterbrowse` for version/help, or use the package from any Node script/agent.
 
@@ -31,7 +31,7 @@ Requires **Node.js >= 20.10.0** and **Chrome/Chromium** installed locally.
 ### Browser Class (Tool Harness)
 
 ```js
-import { Browser } from 'betterbrowse';
+import { Browser } from '@mylesiyabor/betterbrowse';
 
 const browser = new Browser({ headless: true });
 await browser.launch();
@@ -56,7 +56,7 @@ await browser.close();
 ### Agent (LLM-Driven Loop)
 
 ```js
-import { browseWeb } from 'betterbrowse';
+import { browseWeb } from '@mylesiyabor/betterbrowse';
 
 const result = await browseWeb('https://news.ycombinator.com', 'Find the top story title', {
   chat: async (messages, { tools, maxTokens }) => {
@@ -113,7 +113,7 @@ LLM-driven browser agent. Returns `{ result, usage, steps }`.
 ### Snapshot Utilities
 
 ```js
-import { optimizeAll, computeDiff, analyzeWaste } from 'betterbrowse';
+import { optimizeAll, computeDiff, analyzeWaste } from '@mylesiyabor/betterbrowse';
 
 // Optimize a raw ARIA snapshot
 const optimized = optimizeAll(rawSnapshot, { maxItems: 10 });
@@ -149,14 +149,14 @@ The snapshot optimizer pipeline strips chrome (headers/footers), deduplicates li
 Install **betterbrowse** globally so your agent environment (Cursor, MCP servers, CLI tools, etc.) can use it without adding it to every project:
 
 ```bash
-npm install -g betterbrowse
+npm install -g @mylesiyabor/betterbrowse
 ```
 
-- **Cursor / IDE agents:** Ensure the environment where the agent runs has `betterbrowse` on `PATH` (e.g. same Node/npm that you used for `npm install -g betterbrowse`). Then in your agent code or tools, `import { Browser, browseWeb } from 'betterbrowse'`.
-- **MCP / custom runtimes:** Install globally in the same Node version your MCP server uses, then require/import `betterbrowse` in your server code.
+- **Cursor / IDE agents:** Ensure the environment where the agent runs has the package on `PATH` (e.g. same Node/npm that you used for `npm install -g @mylesiyabor/betterbrowse`). Then in your agent code or tools, `import { Browser, browseWeb } from '@mylesiyabor/betterbrowse'`.
+- **MCP / custom runtimes:** Install globally in the same Node version your MCP server uses, then require/import `@mylesiyabor/betterbrowse` in your server code.
 - **CLI:** After global install, run `betterbrowse` or `betterbrowse --version` from any directory.
 
-If you prefer a project-local install instead of global, run `npm install betterbrowse` in your project and import from `'betterbrowse'` as usual.
+If you prefer a project-local install instead of global, run `npm install @mylesiyabor/betterbrowse` in your project and import from `'@mylesiyabor/betterbrowse'` as usual.
 
 ## License
 
