@@ -1,9 +1,12 @@
 {
-  "name": "better-browse",
-  "version": "0.3.0",
+  "name": "betterbrowse",
+  "version": "0.4.0",
   "description": "Zero-dependency browser automation via Chrome DevTools Protocol with ARIA accessibility snapshots — 10-100x cheaper than vision-based approaches",
   "type": "module",
   "main": "./src/index.js",
+  "bin": {
+    "betterbrowse": "./src/cli.js"
+  },
   "exports": {
     ".": "./src/index.js",
     "./browser": "./src/browser.js",

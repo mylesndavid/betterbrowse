@@ -1,10 +1,10 @@
-# better-brows
+# betterbrowse
 
 Zero-dependency browser automation via Chrome DevTools Protocol with ARIA accessibility snapshots — 10-100x cheaper than vision-based approaches.
 
 ## Why?
 
-Most browser automation agents use screenshots + vision models. That's expensive and slow. `better-brows` uses **ARIA accessibility snapshots** instead — a text representation of the page that any LLM can understand. This means:
+Most browser automation agents use screenshots + vision models. That's expensive and slow. **betterbrowse** uses **ARIA accessibility snapshots** instead — a text representation of the page that any LLM can understand. This means:
 
 - **10-100x cheaper** — text tokens vs image tokens
 - **Works with any text model** — no vision model required
@@ -13,18 +13,25 @@ Most browser automation agents use screenshots + vision models. That's expensive
 
 ## Install
 
+**Project (library):**
 ```bash
-npm install better-brows
+npm install betterbrowse
 ```
 
-Requires Node.js >= 20.10.0 and Chrome/Chromium installed locally.
+**Global (CLI + use in agents):**
+```bash
+npm install -g betterbrowse
+```
+Then run `betterbrowse` for version/help, or use the package from any Node script/agent.
+
+Requires **Node.js >= 20.10.0** and **Chrome/Chromium** installed locally.
 
 ## Quick Start
 
 ### Browser Class (Tool Harness)
 
 ```js
-import { Browser } from 'better-brows';
+import { Browser } from 'betterbrowse';
 
 const browser = new Browser({ headless: true });
 await browser.launch();
@@ -49,7 +56,7 @@ await browser.close();
 ### Agent (LLM-Driven Loop)
 
 ```js
-import { browseWeb } from 'better-brows';
+import { browseWeb } from 'betterbrowse';
 
 const result = await browseWeb('https://news.ycombinator.com', 'Find the top story title', {
   chat: async (messages, { tools, maxTokens }) => {
@@ -106,7 +113,7 @@ LLM-driven browser agent. Returns `{ result, usage, steps }`.
 ### Snapshot Utilities
 
 ```js
-import { optimizeAll, computeDiff, analyzeWaste } from 'better-brows';
+import { optimizeAll, computeDiff, analyzeWaste } from 'betterbrowse';
 
 // Optimize a raw ARIA snapshot
 const optimized = optimizeAll(rawSnapshot, { maxItems: 10 });
@@ -136,6 +143,20 @@ Instead of screenshots, we fetch the browser's accessibility tree via CDP and co
 Interactive elements get `[ref=eXX]` tags. The agent uses these refs to click, fill, hover, and select — no pixel coordinates needed.
 
 The snapshot optimizer pipeline strips chrome (headers/footers), deduplicates links, compresses long names, and truncates lists — reducing token count by 60-90%.
+
+## Use in agents (global install)
+
+Install **betterbrowse** globally so your agent environment (Cursor, MCP servers, CLI tools, etc.) can use it without adding it to every project:
+
+```bash
+npm install -g betterbrowse
+```
+
+- **Cursor / IDE agents:** Ensure the environment where the agent runs has `betterbrowse` on `PATH` (e.g. same Node/npm that you used for `npm install -g betterbrowse`). Then in your agent code or tools, `import { Browser, browseWeb } from 'betterbrowse'`.
+- **MCP / custom runtimes:** Install globally in the same Node version your MCP server uses, then require/import `betterbrowse` in your server code.
+- **CLI:** After global install, run `betterbrowse` or `betterbrowse --version` from any directory.
+
+If you prefer a project-local install instead of global, run `npm install betterbrowse` in your project and import from `'betterbrowse'` as usual.
 
 ## License
 
