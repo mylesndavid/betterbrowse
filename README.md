@@ -18,15 +18,41 @@ Most browser automation agents use screenshots + vision models. That's expensive
 npm install @mylesiyabor/betterbrowse
 ```
 
-**Global (CLI + use in agents):**
+**Global (CLI — easy for agents):**
 ```bash
 npm install -g @mylesiyabor/betterbrowse
 ```
-Then run `betterbrowse` for version/help, or use the package from any Node script/agent.
+Then use the **CLI** from any terminal or agent (see below).
 
 Requires **Node.js >= 20.10.0** and **Chrome/Chromium** installed locally.
 
-## Quick Start
+## CLI (easy for agents)
+
+The simplest way for agents to use betterbrowse is the **CLI**. Install globally, then:
+
+**Snapshot only** (no API key) — get the ARIA snapshot of a page on stdout:
+```bash
+betterbrowse https://example.com
+```
+
+**Agent mode** (uses OpenAI; set `OPENAI_API_KEY`) — complete a task and print the result to stdout:
+```bash
+betterbrowse https://news.ycombinator.com "What is the top story title?"
+betterbrowse https://example.com "Click the first link" --no-headless
+```
+
+| Option | Description |
+|--------|-------------|
+| `betterbrowse <url>` | Print ARIA snapshot of the page |
+| `betterbrowse <url> "<task>"` | Run browser agent; result to stdout |
+| `--model <name>` | OpenAI model (default: gpt-4o-mini) |
+| `--no-headless` | Show browser window |
+| `-v, --version` | Print version |
+| `-h, --help` | Show help |
+
+Agents can capture stdout for the snapshot or the task result. No extra dependencies — agent mode calls the OpenAI API with `fetch`.
+
+## Quick Start (library)
 
 ### Browser Class (Tool Harness)
 
@@ -146,17 +172,15 @@ The snapshot optimizer pipeline strips chrome (headers/footers), deduplicates li
 
 ## Use in agents (global install)
 
-Install **betterbrowse** globally so your agent environment (Cursor, MCP servers, CLI tools, etc.) can use it without adding it to every project:
+Install **betterbrowse** globally so any agent (Cursor, MCP, scripts) can run it as a CLI:
 
 ```bash
 npm install -g @mylesiyabor/betterbrowse
 ```
 
-- **Cursor / IDE agents:** Ensure the environment where the agent runs has the package on `PATH` (e.g. same Node/npm that you used for `npm install -g @mylesiyabor/betterbrowse`). Then in your agent code or tools, `import { Browser, browseWeb } from '@mylesiyabor/betterbrowse'`.
-- **MCP / custom runtimes:** Install globally in the same Node version your MCP server uses, then require/import `@mylesiyabor/betterbrowse` in your server code.
-- **CLI:** After global install, run `betterbrowse` or `betterbrowse --version` from any directory.
-
-If you prefer a project-local install instead of global, run `npm install @mylesiyabor/betterbrowse` in your project and import from `'@mylesiyabor/betterbrowse'` as usual.
+- **CLI (recommended):** Run `betterbrowse <url>` or `betterbrowse <url> "<task>"`. Result/snapshot goes to stdout — easy for agents to capture. For task mode set `OPENAI_API_KEY`.
+- **As a library:** In your agent code, `import { Browser, browseWeb } from '@mylesiyabor/betterbrowse'` and call the API (e.g. with your own `chat` function).
+- **Project-local:** Run `npm install @mylesiyabor/betterbrowse` in your project and use the CLI from `npx betterbrowse` or import the module.
 
 ## License
 

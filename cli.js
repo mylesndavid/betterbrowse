@@ -1,28 +1,164 @@
 #!/usr/bin/env node
-// CLI for betterbrowse — global install: npm install -g @mylesiyabor/betterbrowse
+// CLI for betterbrowse — agents can run: betterbrowse <url> "<task>"
+// Global install: npm install -g @mylesiyabor/betterbrowse
 import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import { Browser } from './src/browser.js';
+import { browseWeb } from './src/agent.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(readFileSync(join(__dirname, 'package.json'), 'utf8'));
 
 const args = process.argv.slice(2);
+
+// --version / -v
 if (args.includes('--version') || args.includes('-v')) {
   console.log(pkg.version);
   process.exit(0);
 }
 
-console.log(`
-betterbrowse v${pkg.version}
-Zero-dependency browser automation via Chrome DevTools Protocol + ARIA snapshots.
+// --help / -h
+function showHelp() {
+  console.log(`
+betterbrowse v${pkg.version} — CLI for browser automation (ARIA snapshots, no vision model).
 
-Install:    npm install -g @mylesiyabor/betterbrowse   (global)
-            npm install @mylesiyabor/betterbrowse     (project)
+Usage:
+  betterbrowse <url>                    Get ARIA snapshot of the page (stdout)
+  betterbrowse <url> "<task>"           Run agent to complete task (uses OpenAI)
 
-Use in code:
-  import { Browser, browseWeb } from '@mylesiyabor/betterbrowse';
+Options:
+  --model <name>   OpenAI model (default: gpt-4o-mini). Needs OPENAI_API_KEY.
+  --headless       Run Chrome headless (default: true)
+  --no-headless    Show browser window
+  -v, --version    Print version
+  -h, --help       This help
 
-Docs:       https://github.com/mylesndavid/betterbrowse#readme
-npm:        https://www.npmjs.com/package/@mylesiyabor/betterbrowse
+Examples:
+  betterbrowse https://example.com
+  betterbrowse https://news.ycombinator.com "What is the top story title?"
+  betterbrowse https://example.com "Click the first link" --no-headless
+
+For agent mode (url + task), set OPENAI_API_KEY. Result is printed to stdout.
 `);
+}
+
+if (args.includes('--help') || args.includes('-h')) {
+  showHelp();
+  process.exit(0);
+}
+
+// Parse flags
+const headless = !args.includes('--no-headless');
+const modelIdx = args.indexOf('--model');
+const model = modelIdx >= 0 && args[modelIdx + 1] ? args[modelIdx + 1] : 'gpt-4o-mini';
+const positional = args.filter(a => !a.startsWith('--') && a !== '--no-headless' && (modelIdx < 0 || a !== args[modelIdx + 1]) && (modelIdx < 0 || a !== args[modelIdx]));
+
+const url = positional[0];
+const task = positional[1];
+
+if (!url) {
+  console.error('betterbrowse: missing URL. Use betterbrowse <url> or betterbrowse <url> "<task>"');
+  showHelp();
+  process.exit(1);
+}
+
+// Build absolute URL if needed
+let targetUrl = url;
+if (!/^https?:\/\//i.test(targetUrl)) targetUrl = 'https://' + targetUrl;
+
+async function openaiChat(messages, { tools, maxTokens }) {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) {
+    throw new Error('OPENAI_API_KEY is required for agent mode. Set it or use snapshot-only: betterbrowse <url>');
+  }
+
+  // Convert to OpenAI API format
+  const openaiMessages = messages.map(m => {
+    const out = { role: m.role, content: m.content ?? '' };
+    if (m.tool_calls?.length) {
+      out.tool_calls = m.tool_calls.map(tc => ({
+        id: tc.id,
+        type: 'function',
+        function: { name: tc.function?.name || tc.name, arguments: typeof tc.function?.arguments === 'string' ? tc.function.arguments : JSON.stringify(tc.arguments || {}) },
+      }));
+    }
+    if (m.tool_call_id) out.tool_call_id = m.tool_call_id;
+    return out;
+  });
+
+  const body = {
+    model,
+    messages: openaiMessages,
+    max_tokens: maxTokens || 1024,
+    tools: tools?.length ? tools.map(t => ({ type: 'function', function: t.function })) : undefined,
+  };
+
+  const res = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`OpenAI API error ${res.status}: ${err}`);
+  }
+
+  const data = await res.json();
+  const msg = data.choices?.[0]?.message;
+  if (!msg) throw new Error('OpenAI API: no message in response');
+
+  const toolCalls = msg.tool_calls?.map(tc => ({
+    id: tc.id,
+    name: tc.function?.name,
+    arguments: (() => {
+      try {
+        return JSON.parse(tc.function?.arguments || '{}');
+      } catch {
+        return {};
+      }
+    })(),
+  }));
+
+  return {
+    content: msg.content || '',
+    toolCalls: toolCalls || [],
+    usage: data.usage ? {
+      inputTokens: data.usage.prompt_tokens,
+      outputTokens: data.usage.completion_tokens,
+    } : undefined,
+  };
+}
+
+async function main() {
+  try {
+    if (!task) {
+      // Snapshot-only: open URL, print ARIA snapshot to stdout
+      const browser = new Browser({ headless });
+      await browser.launch();
+      await browser.navigate(targetUrl);
+      const snapshot = await browser.getSnapshot();
+      await browser.close();
+      console.log(snapshot);
+      process.exit(0);
+    }
+
+    // Full agent: url + task
+    const result = await browseWeb(targetUrl, task, {
+      chat: openaiChat,
+      headless,
+    });
+    // Result to stdout so agents can capture it
+    console.log(result.result);
+    process.exit(0);
+  } catch (err) {
+    console.error('betterbrowse:', err.message);
+    process.exit(1);
+  }
+}
+
+main();
